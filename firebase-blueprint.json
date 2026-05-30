@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Information about a user, including leaderboard scores.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "description": "The user's chosen display name" },
+        "wins": { "type": "number", "description": "Global wins count" },
+        "monthlyWins": { "type": "object", "description": "Wins keyed by month (YYYY-MM)" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["displayName", "wins", "createdAt"]
+    },
+    "Game": {
+      "title": "Dots and Boxes Game",
+      "description": "Represents a single match of the game.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["waiting", "playing", "finished"] },
+        "boardSize": { "type": "number" },
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "guestId": { "type": "string" },
+        "guestName": { "type": "string" },
+        "currentPlayerId": { "type": "string" },
+        "winnerId": { "type": "string" },
+        "scoreHost": { "type": "number" },
+        "scoreGuest": { "type": "number" },
+        "lines": { "type": "array", "items": { "type": "string" } },
+        "boxes": { "type": "array", "items": { "type": "string" } },
+        "scoreClaimed": { "type": "boolean" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["status", "boardSize", "hostId", "hostName", "scoreHost", "scoreGuest", "lines", "boxes", "scoreClaimed", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and global leaderboard stats."
+    },
+    "games/{gameId}": {
+      "schema": "Game",
+      "description": "Match rooms."
+    }
+  }
+}

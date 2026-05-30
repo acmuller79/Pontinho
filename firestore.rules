@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} { 
+      allow read, write: if false; 
+    }
+
+    // --- PRIMITIVES ---
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { 
+      return request.resource.data; 
+    }
+    function existing() { 
+      return resource.data; 
+    }
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // --- BLUEPRINTS ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['displayName', 'wins', 'createdAt']) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50 &&
+             data.wins is number &&
+             data.createdAt == request.time;
+    }
+    function isValidUserProfileUpdate(data) {
+      return data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50 &&
+             data.wins is number &&
+             data.createdAt == existing().createdAt;
+    }
+
+    function isValidGame(data) {
+      return data.keys().hasAll(['status', 'boardSize', 'hostId', 'hostName', 'scoreHost', 'scoreGuest', 'lines', 'boxes', 'scoreClaimed', 'createdAt', 'updatedAt']) &&
+             data.status in ['waiting', 'playing', 'finished'] &&
+             data.boardSize is number && data.boardSize >= 3 && data.boardSize <= 10 &&
+             data.hostId is string && data.hostId.size() <= 128 &&
+             data.hostName is string && data.hostName.size() <= 50 &&
+             data.scoreHost is number && data.scoreHost >= 0 &&
+             data.scoreGuest is number && data.scoreGuest >= 0 &&
+             data.lines is list && data.lines.size() <= 250 && 
+             data.boxes is list && data.boxes.size() <= 100 &&
+             data.scoreClaimed is bool &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+    
+    function isValidGameUpdate(data) {
+      return data.status in ['waiting', 'playing', 'finished'] &&
+             data.boardSize == existing().boardSize &&
+             data.hostId == existing().hostId &&
+             data.hostName == existing().hostName &&
+             data.scoreHost is number && data.scoreHost >= 0 &&
+             data.scoreGuest is number && data.scoreGuest >= 0 &&
+             data.lines is list && data.lines.size() <= 250 && 
+             data.boxes is list && data.boxes.size() <= 100 &&
+             data.scoreClaimed is bool &&
+             data.createdAt == existing().createdAt &&
+             data.updatedAt == request.time;
+    }
+
+    // --- COLLECTIONS ---
+
+    match /users/{userId} {
+      allow read: if true;
+      
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().wins == 0 &&
+        incoming().keys().size() <= 4; 
+        
+      allow update: if isOwner(userId) &&
+        isValidUserProfileUpdate(incoming()) &&
+        (
+          // Action: Update Profile Name
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])) ||
+          // Action: Claim Win
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['wins']) &&
+            incoming().wins == existing().wins + 1 
+          ) ||
+          // Action: monthly wins
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['monthlyWins', 'wins']) &&
+            incoming().wins == existing().wins + 1
+          )
+        );
+    }
+
+    match /games/{gameId} {
+      // List/read constraints
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        isValidId(gameId) &&
+        isValidGame(incoming()) &&
+        incoming().hostId == request.auth.uid &&
+        (
+          (
+            (!('guestId' in incoming()) || incoming().guestId == null) &&
+            incoming().status == 'waiting'
+          ) ||
+          (
+            incoming().guestId == 'system_bot' &&
+            incoming().status == 'playing' &&
+            incoming().currentPlayerId == request.auth.uid
+          )
+        ) &&
+        incoming().scoreHost == 0 &&
+        incoming().scoreGuest == 0 &&
+        incoming().lines.size() == 0 &&
+        incoming().boxes.size() == 0 &&
+        incoming().scoreClaimed == false;
+
+      allow update: if isSignedIn() &&
+        isValidGameUpdate(incoming()) &&
+        (
+          // Action: Join Game
+          (
+            existing().status == 'waiting' &&
+            incoming().status == 'playing' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'guestId', 'guestName', 'currentPlayerId', 'updatedAt']) &&
+            incoming().guestId == request.auth.uid &&
+            incoming().currentPlayerId in [existing().hostId, incoming().guestId]
+          ) ||
+          // Action: Make Move
+          (
+            existing().status == 'playing' &&
+            (existing().currentPlayerId == request.auth.uid || (existing().currentPlayerId == 'system_bot' && existing().hostId == request.auth.uid)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['lines', 'boxes', 'scoreHost', 'scoreGuest', 'currentPlayerId', 'status', 'winnerId', 'updatedAt']) &&
+            // Can only add to lines and boxes
+            incoming().lines.size() > existing().lines.size()
+          ) ||
+          // Action: Claim Score
+          (
+            existing().status == 'finished' &&
+            existing().winnerId == request.auth.uid &&
+            !existing().scoreClaimed &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['scoreClaimed', 'updatedAt']) &&
+            incoming().scoreClaimed == true
+          )
+        );
+      
+      allow delete: if isSignedIn() && existing().hostId == request.auth.uid && existing().status == 'waiting';
+    }
+  }
+}

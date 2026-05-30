@@ -1,0 +1,6 @@
+{
+  "name": "Dots and Boxes Online",
+  "description": "Multiplayer global dots and boxes game with real-time updates and leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
